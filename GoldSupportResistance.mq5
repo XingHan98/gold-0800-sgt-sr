@@ -2,25 +2,27 @@
 //|                                     GoldSupportResistance.mq5     |
 //|  Draws daily support & resistance lines for XAU/USD at 08:00 SGT  |
 //|                                                                  |
-//|  Logic (15-min timeframe, Mon-Fri):                              |
+//|  Logic (5-min timeframe by default, Mon-Fri):                    |
 //|   * 08:00 SGT == 00:00 UTC (Singapore has no DST).               |
-//|   * Bar A starts as the 07:45 SGT candle (closes 00:00 UTC),     |
-//|     Bar B as the 07:30 SGT candle (the one before it).           |
+//|   * Bar A starts as the 07:55 SGT candle (closes 00:00 UTC),     |
+//|     Bar B as the 07:50 SGT candle (the one before it).           |
 //|   * RESISTANCE: if Close(A) > High(B) -> resistance = High(B).   |
-//|     Otherwise step back one 15-min interval (A:=B, B:=older)     |
+//|     Otherwise step back one interval (A:=B, B:=older)            |
 //|     and compare again, until the condition is met.               |
 //|   * SUPPORT: if Close(A) < Low(B) -> support = Low(B).           |
 //|     Otherwise step back the same way until met.                  |
 //|   The two searches are independent, both starting from the       |
-//|   07:45 / 07:30 pair and walking backward in 15-min steps.       |
+//|   07:55 / 07:50 pair and walking backward one interval at a time.|
+//|   Interval = InpTimeframe (default M5); change it to finetune.   |
 //+------------------------------------------------------------------+
 #property copyright "Gold S/R EA"
 #property version   "1.00"
 #property strict
 
 //--- Inputs
+input ENUM_TIMEFRAMES InpTimeframe = PERIOD_M5; // Bar A/B interval (default 5-min)
 input int    InpManualOffsetHours = 9999;   // Server->UTC offset in hours (9999 = auto-detect)
-input int    InpLookbackBars      = 300;    // Max 15-min bars to walk back when searching
+input int    InpLookbackBars      = 300;    // Max bars to walk back when searching
 input color  InpResColor          = clrTomato;     // Resistance line color
 input color  InpSupColor          = clrDodgerBlue; // Support line color
 input int    InpLineWidth         = 2;      // Line width
@@ -91,11 +93,12 @@ void DrawLevels(datetime utcMidnight)
    int    offset      = ServerToUTCOffsetSec();
    datetime srvAnchor = utcMidnight + offset;          // 08:00 SGT expressed in server time
 
-   // Pull the 15-min bars just before the anchor (index 0 = newest = 07:45 SGT bar)
+   // Pull the bars just before the anchor (index 0 = newest = last bar before 08:00 SGT)
+   int barSecs = PeriodSeconds(InpTimeframe);
    MqlRates rates[];
    ArraySetAsSeries(rates, true);
-   datetime fromTime = srvAnchor - (datetime)((InpLookbackBars + 5) * 900);
-   int copied = CopyRates(_Symbol, PERIOD_M15, fromTime, srvAnchor - 1, rates);
+   datetime fromTime = srvAnchor - (datetime)((InpLookbackBars + 5) * barSecs);
+   int copied = CopyRates(_Symbol, InpTimeframe, fromTime, srvAnchor - 1, rates);
    if(copied < 2)
      {
       PrintFormat("S/R: not enough bars before %s (got %d)",

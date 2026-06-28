@@ -1,29 +1,30 @@
 //@version=5
 // Gold 08:00 SGT Support / Resistance
 // -----------------------------------------------------------------------------
-// Apply on a 15-minute XAU/USD chart (OANDA: XAUUSD).
+// Apply on a 5-minute XAU/USD chart (OANDA: XAUUSD).
 //
 // At 08:00 SGT each weekday (Mon-Fri) it draws a support and a resistance line
 // using the candles *before* 08:00:
-//   * Bar A starts as the 07:45 SGT candle (the one that closed at 08:00),
-//     Bar B as the 07:30 SGT candle before it.
+//   * Bar A starts as the 07:55 SGT candle (the one that closed at 08:00),
+//     Bar B as the 07:50 SGT candle before it.
 //   * RESISTANCE: if Close(A) > High(B) -> resistance = High(B); otherwise step
-//     back one 15-min interval (A:=B, B:=older) and compare again, until met.
+//     back one 5-min interval (A:=B, B:=older) and compare again, until met.
 //   * SUPPORT: if Close(A) < Low(B) -> support = Low(B); same backward walk.
 //   The two searches are independent.
+//   (Interval = the chart's timeframe; use a 5-min chart for this strategy.)
 // -----------------------------------------------------------------------------
 indicator("Gold 08:00 SGT Support/Resistance", overlay=true, max_lines_count=500, max_labels_count=500)
 
 // --- Inputs ---
-lookback   = input.int(200,         "Max 15-min bars to search back", minval=2)
+lookback   = input.int(200,         "Max bars to search back", minval=2)
 resColor   = input.color(color.red,  "Resistance color")
 supColor   = input.color(color.blue, "Support color")
 lineWidth  = input.int(2,           "Line width", minval=1)
 showLabels = input.bool(true,       "Show price/time labels")
 
-// --- Require a 15-minute chart (Bar A/Bar B are defined on M15) ---
-if timeframe.in_seconds() != 900
-    runtime.error("Apply this indicator on a 15-minute chart.")
+// --- Require a 5-minute chart (Bar A/Bar B interval = chart timeframe) ---
+if timeframe.in_seconds() != 300
+    runtime.error("Apply this indicator on a 5-minute chart.")
 
 // --- Singapore-time components of the current bar ---
 hSgt = hour(time,      "Asia/Singapore")
@@ -34,7 +35,7 @@ dSgt = dayofweek(time, "Asia/Singapore")   // 1=Sun ... 7=Sat
 isTrigger = hSgt == 8 and mSgt == 0 and dSgt >= 2 and dSgt <= 6
 
 if isTrigger
-    // Bar A = bar[1+k] (starts at 07:45), Bar B = bar[2+k] (starts at 07:30)
+    // Bar A = bar[1+k] (starts at 07:55), Bar B = bar[2+k] (starts at 07:50)
 
     // --- Resistance: first k where Close(A) > High(B) ---
     float res    = na
