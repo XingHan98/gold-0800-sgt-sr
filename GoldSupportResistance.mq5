@@ -14,6 +14,10 @@
 //|   The two searches are independent, both starting from the       |
 //|   07:55 / 07:50 pair and walking backward one interval at a time.|
 //|   Interval = InpTimeframe (default M5); change it to finetune.   |
+//|                                                                  |
+//|  Take-profit levels (ATR of Bar A * InpAtrMult = one step):      |
+//|   * BUY  (above R): TP1=R+1step, TP2=R+2step, TP3=R+3step.       |
+//|   * SELL (below S): TP1=S-1step, TP2=S-2step, TP3=S-3step.       |
 //+------------------------------------------------------------------+
 #property copyright "Gold S/R EA"
 #property version   "1.00"
@@ -23,17 +27,24 @@
 input ENUM_TIMEFRAMES InpTimeframe = PERIOD_M5; // Bar A/B interval (default 5-min)
 input int    InpManualOffsetHours = 9999;   // Server->UTC offset in hours (9999 = auto-detect)
 input int    InpLookbackBars      = 300;    // Max bars to walk back when searching
-input color  InpResColor          = clrTomato;     // Resistance line color
-input color  InpSupColor          = clrDodgerBlue; // Support line color
+input int    InpAtrPeriod         = 14;     // ATR period for take-profit spacing
+input double InpAtrMult           = 1.0;    // ATR multiple per take-profit step
+input color  InpResColor          = clrTomato;     // Resistance / Buy-TP color
+input color  InpSupColor          = clrDodgerBlue; // Support / Sell-TP color
 input int    InpLineWidth         = 2;      // Line width
 input bool   InpDrawWeekends      = false;  // Draw on Sat/Sun (gold normally closed)
 
 //--- State
 datetime g_lastDrawnDay = 0;   // UTC midnight of the day we last drew for
+int      g_atrHandle    = INVALID_HANDLE;
 
 //+------------------------------------------------------------------+
 int OnInit()
   {
+   g_atrHandle = iATR(_Symbol, InpTimeframe, InpAtrPeriod);
+   if(g_atrHandle == INVALID_HANDLE)
+      Print("S/R: failed to create ATR handle");
+
    EventSetTimer(30);          // check twice a minute; cheap and reliable
    TryDrawForToday();          // attempt immediately on load
    return(INIT_SUCCEEDED);
@@ -42,6 +53,20 @@ int OnInit()
 void OnDeinit(const int reason)
   {
    EventKillTimer();
+   if(g_atrHandle != INVALID_HANDLE)
+      IndicatorRelease(g_atrHandle);
+  }
+//+------------------------------------------------------------------+
+//| ATR value of the bar at (or just before) the given server time   |
+//+------------------------------------------------------------------+
+double GetATR(datetime barTime)
+  {
+   if(g_atrHandle == INVALID_HANDLE)
+      return(0.0);
+   double buf[];
+   if(CopyBuffer(g_atrHandle, 0, barTime, 1, buf) == 1)
+      return(buf[0]);
+   return(0.0);
   }
 //+------------------------------------------------------------------+
 void OnTimer()
@@ -146,23 +171,43 @@ void DrawLevels(datetime utcMidnight)
    // The lines represent the 08:00 SGT level for this day:
    string drawTimeStr = TimeToString(srvAnchor, TIME_DATE | TIME_MINUTES) + " (08:00 SGT)";
 
+   // ATR as of Bar A (the last bar before 08:00), scaled = one take-profit step
+   double step = GetATR(rates[0].time) * InpAtrMult;
+
    if(resFound)
-      DrawLine("SR_RES_" + dayTag, "R", resistance, srvAnchor, InpResColor, drawTimeStr);
+     {
+      DrawLine("SR_RES_" + dayTag, "R", resistance, srvAnchor, InpResColor, drawTimeStr, true, false);
+      if(step > 0.0)
+        {
+         DrawLine("SR_BTP1_" + dayTag, "Buy TP1", resistance + step,       srvAnchor, InpResColor, drawTimeStr, true, true);
+         DrawLine("SR_BTP2_" + dayTag, "Buy TP2", resistance + 2.0 * step, srvAnchor, InpResColor, drawTimeStr, true, true);
+         DrawLine("SR_BTP3_" + dayTag, "Buy TP3", resistance + 3.0 * step, srvAnchor, InpResColor, drawTimeStr, true, true);
+        }
+     }
    else
       PrintFormat("S/R %s: resistance not found within %d bars", dayTag, maxStep);
 
    if(supFound)
-      DrawLine("SR_SUP_" + dayTag, "S", support, srvAnchor, InpSupColor, drawTimeStr);
+     {
+      DrawLine("SR_SUP_" + dayTag, "S", support, srvAnchor, InpSupColor, drawTimeStr, false, false);
+      if(step > 0.0)
+        {
+         DrawLine("SR_STP1_" + dayTag, "Sell TP1", support - step,       srvAnchor, InpSupColor, drawTimeStr, false, true);
+         DrawLine("SR_STP2_" + dayTag, "Sell TP2", support - 2.0 * step, srvAnchor, InpSupColor, drawTimeStr, false, true);
+         DrawLine("SR_STP3_" + dayTag, "Sell TP3", support - 3.0 * step, srvAnchor, InpSupColor, drawTimeStr, false, true);
+        }
+     }
    else
       PrintFormat("S/R %s: support not found within %d bars", dayTag, maxStep);
 
-   // Log: price, the 08:00 SGT anchor the line marks, the source bar, and wall-clock draw time
-   PrintFormat("S/R for %s | resistance=%s (from bar %s) | support=%s (from bar %s) | line time=%s | computed at %s server (offset=%dh)",
+   // Log: price, source bar, ATR take-profit step, and timing
+   PrintFormat("S/R for %s | resistance=%s (from bar %s) | support=%s (from bar %s) | ATR step=%s | line time=%s | computed at %s server (offset=%dh)",
                dayTag,
                resFound ? DoubleToString(resistance, _Digits) : "n/a",
                resFound ? TimeToString(resBarTime, TIME_DATE | TIME_MINUTES) : "n/a",
                supFound ? DoubleToString(support, _Digits)    : "n/a",
                supFound ? TimeToString(supBarTime, TIME_DATE | TIME_MINUTES) : "n/a",
+               step > 0.0 ? DoubleToString(step, _Digits) : "n/a",
                drawTimeStr,
                TimeToString(TimeCurrent(), TIME_DATE | TIME_MINUTES),
                offset / 3600);
@@ -172,30 +217,32 @@ void DrawLevels(datetime utcMidnight)
 //|   prefix:  "R" or "S"                                            |
 //|   timeStr: the 08:00 SGT time the line represents                |
 //+------------------------------------------------------------------+
-void DrawLine(string name, string prefix, double price, datetime fromT, color clr, string timeStr)
+void DrawLine(string name, string prefix, double price, datetime fromT, color clr, string timeStr, bool placeAbove, bool dotted)
   {
    string priceStr = DoubleToString(price, _Digits);
    string caption  = prefix + " " + priceStr + "  @ " + timeStr;
 
-   //--- the line itself
+   //--- the line itself (TP levels dotted, S/R solid)
    datetime toT = fromT + 86400;           // span ~24h forward from 08:00 SGT
    ObjectDelete(0, name);
    ObjectCreate(0, name, OBJ_TREND, 0, fromT, price, toT, price);
    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
-   ObjectSetInteger(0, name, OBJPROP_WIDTH, InpLineWidth);
+   // MT5 renders STYLE_DOT only at width 1; force it for dotted TP lines
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, dotted ? 1 : InpLineWidth);
+   ObjectSetInteger(0, name, OBJPROP_STYLE, dotted ? STYLE_DOT : STYLE_SOLID);
    ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, false);
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetString (0, name, OBJPROP_TEXT, caption);
    ObjectSetString (0, name, OBJPROP_TOOLTIP, caption);
 
-   //--- a text label anchored at the left end of the line showing price + time
+   //--- a text label at the left end: above the line for buy levels, below for sell
    string lblName = name + "_lbl";
    ObjectDelete(0, lblName);
    ObjectCreate(0, lblName, OBJ_TEXT, 0, fromT, price);
    ObjectSetString (0, lblName, OBJPROP_TEXT, caption);
    ObjectSetInteger(0, lblName, OBJPROP_COLOR, clr);
    ObjectSetInteger(0, lblName, OBJPROP_FONTSIZE, 9);
-   ObjectSetInteger(0, lblName, OBJPROP_ANCHOR, ANCHOR_LEFT_LOWER);
+   ObjectSetInteger(0, lblName, OBJPROP_ANCHOR, placeAbove ? ANCHOR_LEFT_LOWER : ANCHOR_LEFT_UPPER);
    ObjectSetInteger(0, lblName, OBJPROP_SELECTABLE, false);
   }
 //+------------------------------------------------------------------+

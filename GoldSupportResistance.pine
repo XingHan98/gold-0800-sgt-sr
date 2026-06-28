@@ -1,5 +1,5 @@
 //@version=5
-// Gold 08:00 SGT Support / Resistance
+// Gold 08:00 SGT Support / Resistance + ATR take-profit levels
 // -----------------------------------------------------------------------------
 // Apply on a 5-minute XAU/USD chart (OANDA: XAUUSD).
 //
@@ -12,19 +12,39 @@
 //   * SUPPORT: if Close(A) < Low(B) -> support = Low(B); same backward walk.
 //   The two searches are independent.
 //   (Interval = the chart's timeframe; use a 5-min chart for this strategy.)
+//
+// Take-profit levels (ATR = chart-timeframe ATR at Bar A, free-plan compatible):
+//   * BUY  case (above resistance): TP1 = R + 1*ATR, TP2 = R + 2*ATR, TP3 = R + 3*ATR
+//   * SELL case (below support):    TP1 = S - 1*ATR, TP2 = S - 2*ATR, TP3 = S - 3*ATR
+//   ATR multiple input scales the per-step distance.
 // -----------------------------------------------------------------------------
 indicator("Gold 08:00 SGT Support/Resistance", overlay=true, max_lines_count=500, max_labels_count=500)
 
 // --- Inputs ---
 lookback   = input.int(200,         "Max bars to search back", minval=2)
-resColor   = input.color(color.red,  "Resistance color")
-supColor   = input.color(color.blue, "Support color")
+atrLen     = input.int(14,          "ATR length", minval=1)
+atrMult    = input.float(1.0,       "ATR multiple per TP step", minval=0.1, step=0.1)
+resColor   = input.color(color.red,  "Resistance / Buy-TP color")
+supColor   = input.color(color.blue, "Support / Sell-TP color")
 lineWidth  = input.int(2,           "Line width", minval=1)
 showLabels = input.bool(true,       "Show price/time labels")
 
 // --- Require a 5-minute chart (Bar A/Bar B interval = chart timeframe) ---
 if timeframe.in_seconds() != 300
     runtime.error("Apply this indicator on a 5-minute chart.")
+
+// ATR must be evaluated on every bar (not inside the conditional block)
+atrVal = ta.atr(atrLen)
+
+// --- Helper: draw a horizontal level + a price/time label -------------------
+//   placeAbove = true  -> label box sits ABOVE the line
+//   placeAbove = false -> label box sits BELOW the line
+drawLevel(float px, int t1, int t2, color col, string txt, bool placeAbove, string tStrArg, bool dotted) =>
+    lStyle = dotted ? line.style_dotted : line.style_solid
+    line.new(t1, px, t2, px, xloc=xloc.bar_time, color=col, width=lineWidth, style=lStyle)
+    if showLabels
+        lblStyle = placeAbove ? label.style_label_down : label.style_label_up
+        label.new(t1, px, txt + " " + str.tostring(px, format.mintick) + "  @ " + tStrArg + " SGT", xloc=xloc.bar_time, style=lblStyle, color=color.new(col, 80), textcolor=col, size=size.small)
 
 // --- Singapore-time components of the current bar ---
 hSgt = hour(time,      "Asia/Singapore")
@@ -38,39 +58,42 @@ if isTrigger
     // Bar A = bar[1+k] (starts at 07:55), Bar B = bar[2+k] (starts at 07:50)
 
     // --- Resistance: first k where Close(A) > High(B) ---
-    float res    = na
-    int   resBar = na
+    float res = na
     for k = 0 to lookback
         if na(res)
             idxA = 1 + k
             idxB = 2 + k
             if not na(close[idxA]) and not na(high[idxB]) and close[idxA] > high[idxB]
-                res    := high[idxB]
-                resBar := idxB
+                res := high[idxB]
 
     // --- Support: first k where Close(A) < Low(B) ---
-    float sup    = na
-    int   supBar = na
+    float sup = na
     for k = 0 to lookback
         if na(sup)
             idxA = 1 + k
             idxB = 2 + k
             if not na(close[idxA]) and not na(low[idxB]) and close[idxA] < low[idxB]
-                sup    := low[idxB]
-                supBar := idxB
+                sup := low[idxB]
 
-    // The line spans ~24h forward from the 08:00 SGT anchor
+    // ATR as of Bar A (the 07:55 candle), scaled by the multiple = one TP step
+    float step = atrVal[1] * atrMult
+
+    // The lines span ~24h forward from the 08:00 SGT anchor
     int    x2   = time + 24 * 60 * 60 * 1000
     string tStr = str.format_time(time, "yyyy-MM-dd HH:mm", "Asia/Singapore")
 
+    // --- Resistance (solid) + buy-side take profits (dotted, labels above) ---
     if not na(res)
-        line.new(time, res, x2, res, xloc=xloc.bar_time, color=resColor, width=lineWidth)
-        if showLabels
-            // style_label_down => box sits ABOVE the line, pointer touches it
-            label.new(time, res, "R " + str.tostring(res, format.mintick) + "  @ " + tStr + " SGT", xloc=xloc.bar_time, style=label.style_label_down, color=color.new(resColor, 80), textcolor=resColor, size=size.small)
+        drawLevel(res, time, x2, resColor, "R", true, tStr, false)
+        if not na(step)
+            drawLevel(res + step,       time, x2, resColor, "Buy TP1", true, tStr, true)
+            drawLevel(res + 2 * step,   time, x2, resColor, "Buy TP2", true, tStr, true)
+            drawLevel(res + 3 * step,   time, x2, resColor, "Buy TP3", true, tStr, true)
 
+    // --- Support (solid) + sell-side take profits (dotted, labels below) ---
     if not na(sup)
-        line.new(time, sup, x2, sup, xloc=xloc.bar_time, color=supColor, width=lineWidth)
-        if showLabels
-            // style_label_up => box sits BELOW the line, pointer touches it
-            label.new(time, sup, "S " + str.tostring(sup, format.mintick) + "  @ " + tStr + " SGT", xloc=xloc.bar_time, style=label.style_label_up, color=color.new(supColor, 80), textcolor=supColor, size=size.small)
+        drawLevel(sup, time, x2, supColor, "S", false, tStr, false)
+        if not na(step)
+            drawLevel(sup - step,       time, x2, supColor, "Sell TP1", false, tStr, true)
+            drawLevel(sup - 2 * step,   time, x2, supColor, "Sell TP2", false, tStr, true)
+            drawLevel(sup - 3 * step,   time, x2, supColor, "Sell TP3", false, tStr, true)
