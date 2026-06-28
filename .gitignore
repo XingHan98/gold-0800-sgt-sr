@@ -1,0 +1,6 @@
+# macOS
+.DS_Store
+
+# MetaTrader compiled output
+*.ex5
+*.ex4

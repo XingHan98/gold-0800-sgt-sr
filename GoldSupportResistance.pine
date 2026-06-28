@@ -1,0 +1,75 @@
+//@version=5
+// Gold 08:00 SGT Support / Resistance
+// -----------------------------------------------------------------------------
+// Apply on a 15-minute XAU/USD chart (OANDA: XAUUSD).
+//
+// At 08:00 SGT each weekday (Mon-Fri) it draws a support and a resistance line
+// using the candles *before* 08:00:
+//   * Bar A starts as the 07:45 SGT candle (the one that closed at 08:00),
+//     Bar B as the 07:30 SGT candle before it.
+//   * RESISTANCE: if Close(A) > High(B) -> resistance = High(B); otherwise step
+//     back one 15-min interval (A:=B, B:=older) and compare again, until met.
+//   * SUPPORT: if Close(A) < Low(B) -> support = Low(B); same backward walk.
+//   The two searches are independent.
+// -----------------------------------------------------------------------------
+indicator("Gold 08:00 SGT Support/Resistance", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// --- Inputs ---
+lookback   = input.int(200,         "Max 15-min bars to search back", minval=2)
+resColor   = input.color(color.red,  "Resistance color")
+supColor   = input.color(color.blue, "Support color")
+lineWidth  = input.int(2,           "Line width", minval=1)
+showLabels = input.bool(true,       "Show price/time labels")
+
+// --- Require a 15-minute chart (Bar A/Bar B are defined on M15) ---
+if timeframe.in_seconds() != 900
+    runtime.error("Apply this indicator on a 15-minute chart.")
+
+// --- Singapore-time components of the current bar ---
+hSgt = hour(time,      "Asia/Singapore")
+mSgt = minute(time,    "Asia/Singapore")
+dSgt = dayofweek(time, "Asia/Singapore")   // 1=Sun ... 7=Sat
+
+// Fires once, on the bar that opens at 08:00 SGT, Mon-Fri
+isTrigger = hSgt == 8 and mSgt == 0 and dSgt >= 2 and dSgt <= 6
+
+if isTrigger
+    // Bar A = bar[1+k] (starts at 07:45), Bar B = bar[2+k] (starts at 07:30)
+
+    // --- Resistance: first k where Close(A) > High(B) ---
+    float res    = na
+    int   resBar = na
+    for k = 0 to lookback
+        if na(res)
+            idxA = 1 + k
+            idxB = 2 + k
+            if not na(close[idxA]) and not na(high[idxB]) and close[idxA] > high[idxB]
+                res    := high[idxB]
+                resBar := idxB
+
+    // --- Support: first k where Close(A) < Low(B) ---
+    float sup    = na
+    int   supBar = na
+    for k = 0 to lookback
+        if na(sup)
+            idxA = 1 + k
+            idxB = 2 + k
+            if not na(close[idxA]) and not na(low[idxB]) and close[idxA] < low[idxB]
+                sup    := low[idxB]
+                supBar := idxB
+
+    // The line spans ~24h forward from the 08:00 SGT anchor
+    int    x2   = time + 24 * 60 * 60 * 1000
+    string tStr = str.format_time(time, "yyyy-MM-dd HH:mm", "Asia/Singapore")
+
+    if not na(res)
+        line.new(time, res, x2, res, xloc=xloc.bar_time, color=resColor, width=lineWidth)
+        if showLabels
+            // style_label_down => box sits ABOVE the line, pointer touches it
+            label.new(time, res, "R " + str.tostring(res, format.mintick) + "  @ " + tStr + " SGT", xloc=xloc.bar_time, style=label.style_label_down, color=color.new(resColor, 80), textcolor=resColor, size=size.small)
+
+    if not na(sup)
+        line.new(time, sup, x2, sup, xloc=xloc.bar_time, color=supColor, width=lineWidth)
+        if showLabels
+            // style_label_up => box sits BELOW the line, pointer touches it
+            label.new(time, sup, "S " + str.tostring(sup, format.mintick) + "  @ " + tStr + " SGT", xloc=xloc.bar_time, style=label.style_label_up, color=color.new(supColor, 80), textcolor=supColor, size=size.small)
