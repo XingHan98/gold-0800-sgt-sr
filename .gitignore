@@ -4,3 +4,6 @@
 # MetaTrader compiled output
 *.ex5
 *.ex4
+
+# Instructor signal data — keep private (paid product), do not publish
+signal-analysis/instructor_signals.csv
