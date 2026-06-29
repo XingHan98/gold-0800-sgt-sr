@@ -80,7 +80,55 @@ and times to the Experts tab.
 | Line width | `InpLineWidth` | `Line width` | 2 |
 | Server→UTC offset | `InpManualOffsetHours` | — (native SGT) | auto |
 
+## Daily Telegram alerts
+
+A cloud job sends the day's levels to Telegram every weekday at 08:00 SGT — no
+always-on machine required (it runs on GitHub Actions).
+
+- [`daily-telegram/daily_levels.py`](daily-telegram/daily_levels.py) — fetches
+  5-min `XAU_USD` candles from the **OANDA v20 API** and computes the same
+  support/resistance + ATR take-profits as the indicators, then sends a Telegram
+  message. ATR uses Wilder smoothing to match TradingView's `ta.atr`.
+- [`.github/workflows/daily-levels.yml`](.github/workflows/daily-levels.yml) —
+  schedule `0 0 * * 1-5` (00:00 UTC = 08:00 SGT, Mon–Fri), plus a manual
+  **Run workflow** button.
+
+### Message format
+
+```
+📅 Gold 08:00 SGT — 2026-06-29
+🟢 BUY entry (R): 4062.34
+   TP1: 4067.51  TP2: 4072.69  TP3: 4077.87
+🔴 SELL entry (S): 4059.55
+   TP1: 4054.37  TP2: 4049.19  TP3: 4044.01
+```
+
+### Required GitHub Actions secrets
+
+Repo → Settings → Secrets and variables → Actions:
+
+| Secret | Purpose |
+|--------|---------|
+| `OANDA_API_TOKEN` | OANDA v20 personal access token (data only) |
+| `OANDA_ENV` | `live` or `practice` — **must match where the token was generated** |
+| `TELEGRAM_BOT_TOKEN` | token from @BotFather |
+| `TELEGRAM_CHAT_ID` | your numeric chat ID (message the bot once first) |
+
+Optional env tweaks (set in the workflow): `ATR_PERIOD`, `ATR_MULT`, `LOOKBACK`,
+`INSTRUMENT`, `GRANULARITY`, `DECIMALS`.
+
+### Running / troubleshooting
+
+- **Manual run:** Actions tab → *Daily Gold Levels* → **Run workflow**.
+- **401 from OANDA:** `OANDA_ENV` doesn't match the token (live token needs
+  `live`, demo token needs `practice`).
+- **400 from Telegram:** wrong `TELEGRAM_CHAT_ID`, or you haven't sent your bot a
+  message yet (a bot can't message you first).
+- The script exits cleanly (no failure email) on weekends, missing data, or
+  missing secrets.
+
 ## Status
 
-Line drawing and ATR take-profit levels are complete on both platforms.
-Auto-trading off these levels is the planned next phase for the MT5 version.
+Line drawing and ATR take-profit levels are complete on both platforms, and the
+daily Telegram alert is live. Auto-trading off these levels is the planned next
+phase for the MT5 version (currently in the backlog).
