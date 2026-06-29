@@ -124,7 +124,10 @@ def build_message(date_sgt, res, sup, step):
 def send_telegram(text: str):
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
     r = requests.post(url, data={"chat_id": TG_CHAT, "text": text}, timeout=30)
-    r.raise_for_status()
+    if not r.ok:
+        # Telegram explains the failure in the body, e.g. "chat not found"
+        print(f"[error] Telegram {r.status_code}: {r.text}")
+        r.raise_for_status()
     print("[ok] Telegram message sent.")
 
 
