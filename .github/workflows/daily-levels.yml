@@ -1,0 +1,32 @@
+name: Daily Gold Levels
+
+on:
+  schedule:
+    # 00:00 UTC == 08:00 SGT, Monday-Friday. (GitHub cron is best-effort and
+    # may start a few minutes late at busy times.)
+    - cron: "0 0 * * 1-5"
+  workflow_dispatch: {}        # lets you run it manually from the Actions tab
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r daily-telegram/requirements.txt
+
+      - name: Send daily levels
+        env:
+          OANDA_API_TOKEN: ${{ secrets.OANDA_API_TOKEN }}
+          OANDA_ENV: ${{ secrets.OANDA_ENV }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Optional finetuning (defaults baked into the script):
+          # ATR_PERIOD: "14"
+          # ATR_MULT: "1.0"
+        run: python daily-telegram/daily_levels.py
