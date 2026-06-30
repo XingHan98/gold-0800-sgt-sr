@@ -2,9 +2,11 @@ name: Daily Gold Levels
 
 on:
   schedule:
-    # 00:00 UTC == 08:00 SGT, Monday-Friday. (GitHub cron is best-effort and
-    # may start a few minutes late at busy times.)
-    - cron: "0 0 * * 1-5"
+    # 00:12 UTC == 08:12 SGT, Monday-Friday. Deliberately off the top of the hour:
+    # GitHub's scheduler is heavily congested at :00 and often delays/drops those
+    # runs. The levels are anchored to 00:00 UTC regardless of when this fires, so
+    # the numbers are still the 08:00 SGT levels.
+    - cron: "12 0 * * 1-5"
   workflow_dispatch: {}        # lets you run it manually from the Actions tab
 
 jobs:
